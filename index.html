@@ -1,0 +1,237 @@
+```html
+<!DOCTYPE html>
+<html lang="pt-PT">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Treino Cognitivo</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Adicionar Phosphor Icons para as setas -->
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+    <style>
+        body {
+            background-color: #1a1a1a;
+            color: white;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            overflow: hidden; /* Evitar scroll durante o treino */
+        }
+        
+        .stimulus-container {
+            transition: background-color 0.15s ease-in-out;
+        }
+
+        .icon-container i {
+            transition: transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            filter: drop-shadow(0 4px 6px rgba(0, 0, 0, 0.3));
+        }
+        
+        /* Ocultar scrollbar no painel de controlo se necessário */
+        ::-webkit-scrollbar {
+            display: none;
+        }
+    </style>
+</head>
+<body class="h-screen w-screen flex flex-col items-center justify-center p-4 md:p-8">
+
+    <!-- Área do Estímulo -->
+    <div id="stimulusArea" class="stimulus-container flex-1 w-full max-w-4xl bg-gray-800 rounded-3xl flex items-center justify-center mb-6 relative overflow-hidden shadow-2xl">
+        <div id="iconWrapper" class="icon-container text-white">
+            <i id="stimulusIcon" class="ph-fill ph-play-circle text-8xl md:text-[200px]"></i>
+        </div>
+    </div>
+
+    <!-- Painel de Controlo -->
+    <div class="w-full max-w-4xl bg-gray-900 bg-opacity-80 rounded-2xl p-6 shadow-lg backdrop-blur-sm">
+        
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+            <!-- Temporizador Mínimo -->
+            <div class="flex flex-col space-y-2">
+                <label for="minTime" class="text-sm font-medium text-gray-300 flex justify-between">
+                    <span>Intervalo Mínimo</span>
+                    <span id="minTimeDisplay" class="font-bold text-white">1.0s</span>
+                </label>
+                <input type="range" id="minTime" min="0.5" max="4.0" step="0.1" value="1.0" 
+                       class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-blue-500">
+            </div>
+
+            <!-- Temporizador Máximo -->
+            <div class="flex flex-col space-y-2">
+                <label for="maxTime" class="text-sm font-medium text-gray-300 flex justify-between">
+                    <span>Intervalo Máximo</span>
+                    <span id="maxTimeDisplay" class="font-bold text-white">4.0s</span>
+                </label>
+                <input type="range" id="maxTime" min="2.0" max="8.0" step="0.1" value="4.0" 
+                       class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-blue-500">
+            </div>
+        </div>
+
+        <!-- Botão Iniciar/Parar -->
+        <button id="toggleBtn" onclick="toggleTraining()" 
+                class="w-full py-4 rounded-xl text-xl font-bold transition-colors duration-200 bg-green-600 hover:bg-green-500 text-white shadow-md">
+            Iniciar Treino
+        </button>
+    </div>
+
+    <script>
+        // Variáveis de Estado
+        let isActive = false;
+        let timerId = null;
+        
+        // Elementos do DOM
+        const stimulusArea = document.getElementById('stimulusArea');
+        const stimulusIcon = document.getElementById('stimulusIcon');
+        const toggleBtn = document.getElementById('toggleBtn');
+        const minTimeInput = document.getElementById('minTime');
+        const maxTimeInput = document.getElementById('maxTime');
+        const minTimeDisplay = document.getElementById('minTimeDisplay');
+        const maxTimeDisplay = document.getElementById('maxTimeDisplay');
+
+        // Configurações de Estímulos
+        const colors = [
+            '#EF4444', // Vermelho
+            '#3B82F6', // Azul
+            '#10B981', // Verde
+            '#F59E0B', // Amarelo
+            '#8B5CF6', // Roxo
+            '#06B6D4', // Ciano
+            '#F97316'  // Laranja
+        ];
+
+        const icons = [
+            'ph-arrow-up',
+            'ph-arrow-down',
+            'ph-arrow-left',
+            'ph-arrow-right',
+            'ph-arrow-up-left',
+            'ph-arrow-up-right',
+            'ph-arrow-down-left',
+            'ph-arrow-down-right'
+        ];
+
+        // Sintetizador de Voz para feedback auditivo adicional
+        const synth = window.speechSynthesis;
+        let audioContext = null;
+
+        // Atualizar displays de tempo
+        minTimeInput.addEventListener('input', (e) => {
+            const val = parseFloat(e.target.value);
+            minTimeDisplay.textContent = val.toFixed(1) + 's';
+            // Garantir que o mínimo não é maior que o máximo
+            if (val >= parseFloat(maxTimeInput.value)) {
+                maxTimeInput.value = (val + 0.5).toFixed(1);
+                maxTimeDisplay.textContent = maxTimeInput.value + 's';
+            }
+        });
+
+        maxTimeInput.addEventListener('input', (e) => {
+            const val = parseFloat(e.target.value);
+            maxTimeDisplay.textContent = val.toFixed(1) + 's';
+            // Garantir que o máximo não é menor que o mínimo
+            if (val <= parseFloat(minTimeInput.value)) {
+                minTimeInput.value = (val - 0.5).toFixed(1);
+                minTimeDisplay.textContent = minTimeInput.value + 's';
+            }
+        });
+
+        // Função para gerar um 'Beep' usando a Web Audio API
+        function playBeep() {
+            if (!audioContext) {
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            if (audioContext.state === 'suspended') {
+                audioContext.resume();
+            }
+
+            const oscillator = audioContext.createOscillator();
+            const gainNode = audioContext.createGain();
+
+            oscillator.type = 'sine';
+            oscillator.frequency.setValueAtTime(800, audioContext.currentTime); // Frequência do beep
+            
+            gainNode.gain.setValueAtTime(0, audioContext.currentTime);
+            gainNode.gain.linearRampToValueAtTime(0.5, audioContext.currentTime + 0.01);
+            gainNode.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + 0.15);
+
+            oscillator.connect(gainNode);
+            gainNode.connect(audioContext.destination);
+
+            oscillator.start(audioContext.currentTime);
+            oscillator.stop(audioContext.currentTime + 0.15);
+        }
+
+        // Lógica Principal
+        function toggleTraining() {
+            if (isActive) {
+                stopTraining();
+            } else {
+                startTraining();
+            }
+        }
+
+        function startTraining() {
+            isActive = true;
+            toggleBtn.textContent = 'Parar Treino';
+            toggleBtn.classList.remove('bg-green-600', 'hover:bg-green-500');
+            toggleBtn.classList.add('bg-red-600', 'hover:bg-red-500');
+            
+            // Estado de espera
+            stimulusArea.style.backgroundColor = '#4B5563'; // Gray
+            stimulusIcon.className = 'ph-fill ph-hourglass text-8xl md:text-[200px] opacity-50';
+            
+            scheduleNextStimulus();
+        }
+
+        function stopTraining() {
+            isActive = false;
+            if (timerId) clearTimeout(timerId);
+            
+            toggleBtn.textContent = 'Iniciar Treino';
+            toggleBtn.classList.remove('bg-red-600', 'hover:bg-red-500');
+            toggleBtn.classList.add('bg-green-600', 'hover:bg-green-500');
+            
+            // Repor estado inicial
+            stimulusArea.style.backgroundColor = '#1F2937'; // Gray-800
+            stimulusIcon.className = 'ph-fill ph-play-circle text-8xl md:text-[200px] text-white opacity-100';
+            stimulusIcon.style.transform = 'scale(1)';
+        }
+
+        function scheduleNextStimulus() {
+            if (!isActive) return;
+
+            const min = parseFloat(minTimeInput.value) * 1000;
+            const max = parseFloat(maxTimeInput.value) * 1000;
+            const delay = Math.random() * (max - min) + min;
+
+            timerId = setTimeout(() => {
+                triggerStimulus();
+                scheduleNextStimulus();
+            }, delay);
+        }
+
+        function triggerStimulus() {
+            // Selecionar Cor
+            const randomColor = colors[Math.floor(Math.random() * colors.length)];
+            // Selecionar Ícone (Seta)
+            const randomIcon = icons[Math.floor(Math.random() * icons.length)];
+
+            // Aplicar UI
+            stimulusArea.style.backgroundColor = randomColor;
+            
+            // Animar Ícone
+            stimulusIcon.className = `ph-bold ${randomIcon} text-8xl md:text-[200px] text-white opacity-100`;
+            stimulusIcon.style.transform = 'scale(0.8)';
+            setTimeout(() => {
+                stimulusIcon.style.transform = 'scale(1.1)';
+                setTimeout(() => {
+                    stimulusIcon.style.transform = 'scale(1)';
+                }, 100);
+            }, 50);
+
+            // Tocar som
+            playBeep();
+        }
+    </script>
+</body>
+</html>
+
+```
